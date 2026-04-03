@@ -1,0 +1,77 @@
+
+name: dacon_train_gat
+model_type: DACoN
+
+num_gpu: 1
+manual_seed: 42
+
+version: "1_1" # "1_0"
+colorize_type: keyframe # keyframe, consecutive_frame
+
+datasets:
+  name: PaintBucket_Char_v2
+  clip_interval: 20
+
+  train:
+    root: dataset/PaintBucket_Char_v2/train/PaintBucket_Char_v2/
+    seg_size: [512, 512]
+    use_shuffle: True
+    num_worker: 4
+
+  val:
+    root: dataset/PaintBucket_Char_v2/test/PaintBucket_Char_v2/
+    save_path: outputs/
+    num_worker: 4
+
+
+network:
+  feats_dim: 128
+
+  dino_model_type: dinov2_vitl14
+  dino_input_size: [518, 518]
+
+  unet_input_size: [512, 512]
+  unet_input_dim: 3
+  unet_hidden_dim_list: [64, 128, 256, 512]
+
+  segment_pool_size: [512, 512]
+
+  # Contribution 1: topology-aware segment correspondence via GAT
+  # Set use_gat: False to train the DACoN + Augmentation-only ablation.
+  use_gat: True
+  gat_dropout: 0.1    # dropout on GAT attention weights
+
+train:
+  scheduler:
+    type: Adam
+    learning_rate: 1e-4   # unchanged from DACoN baseline
+
+  num_epochs: 5
+  batch_size: 2
+
+  model_save_path: checkpoints/
+
+  # Contribution 2: sketch robustness augmentation
+  # Set use_aug: False to train the DACoN + GAT-only ablation.
+  use_aug: True
+
+val:
+  save_images: True
+  save_json: True
+  save_path: outputs/
+
+  batch_size: 1
+
+losses:
+  loss_scale_ce: 0.5
+  loss_scale_mae: 0.2
+
+
+# ---------------------------------------------------------------------------
+# Ablation study variants — copy this file and toggle the flags below:
+#
+#   Full model (GAT + Aug):  use_gat: True,  use_aug: True   ← this file
+#   GAT only:                use_gat: True,  use_aug: False
+#   Aug only:                use_gat: False, use_aug: True
+#   DACoN baseline:          use_gat: False, use_aug: False   ← use train.yaml
+# ---------------------------------------------------------------------------

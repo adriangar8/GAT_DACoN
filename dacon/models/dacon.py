@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import segment_pooling
+from models.gat_module import GATModule
 
 class MLP(nn.Module):
     def __init__(self, input_dim, hidden_dim, output_dim):
@@ -137,6 +138,12 @@ class DACoNModel(nn.Module):
         if self.version == "1_0":
             self.dino_unet_mlp = MLP(self.feats_dim * 2, self.feats_dim * 4, self.feats_dim)
 
+        # Contribution 1: topology-aware segment correspondence via GAT
+        self.use_gat = dacon_config.get("use_gat", False)
+        if self.use_gat:
+            gat_dropout = dacon_config.get("gat_dropout", 0.1)
+            self.gat = GATModule(feat_dim=self.feats_dim, dropout=gat_dropout)
+
     def l2_normalize(self, x, dim=-1, eps=1e-6):
         return x / (x.norm(p=2, dim=dim, keepdim=True) + eps)
     
@@ -224,13 +231,20 @@ class DACoNModel(nn.Module):
 
         dino_feats_map = self.get_dino_feats_map(line_images)
         seg_dino_feats = self.get_segment_feats(dino_feats_map, seg_images, seg_nums)
-        raw_dino_feats = seg_dino_feats.clone() 
+        raw_dino_feats = seg_dino_feats.clone()
 
         unet_feats_map = self.get_unet_feats_map(line_images)
         seg_unet_feats = self.get_segment_feats(unet_feats_map, seg_images, seg_nums)
 
         seg_dino_feats_reduced = self.dino_dim_reduction(seg_dino_feats)
         seg_feats = self.dino_unet_fusion(seg_dino_feats_reduced, seg_unet_feats)
+
+        # Contribution 1: enrich each segment with topology from spatial neighbours.
+        # Applied after MLP fusion and before cosine-similarity matching.
+        # raw_dino_feats (used for the DINO consistency loss) is intentionally
+        # kept unchanged so L_dc still measures alignment with raw DINO structure.
+        if self.use_gat:
+            seg_feats = self.gat(seg_feats, seg_images, seg_nums)
 
         return seg_feats, raw_dino_feats
 

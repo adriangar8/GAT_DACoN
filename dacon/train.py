@@ -21,6 +21,7 @@ from utils import (
     format_time,
     find_latest_checkpoint,
     setup_logger,
+    SketchAugmentation,
 )
 
 
@@ -65,8 +66,14 @@ def main(args):
     torch.manual_seed(seed_num)
     torch.cuda.manual_seed(seed_num)
 
+    # Contribution 2: sketch robustness augmentation (applied to target line images)
+    use_aug = config['train'].get('use_aug', False)
+    augmenter = SketchAugmentation() if use_aug else None
+
     logger = setup_logger(save_path, current_time, log_name="dacon_train")
     logger.info(f"Training DACoN version {version}.")
+    if use_aug:
+        logger.info("Sketch robustness augmentation: ENABLED")
     logger.info("\n===== Config =====\n" + yaml.dump(config, default_flow_style=False, sort_keys=False))
 
     device = torch.device("cuda" if torch.cuda.is_available() and config['num_gpu'] > 0 else "cpu")
@@ -122,6 +129,12 @@ def main(args):
 
         for i, data in enumerate(train_dataloader):
             data = move_data_to_device(data, device)
+
+            # Contribution 2: augment target line images before the forward pass.
+            # Reference images (line_images_src) are intentionally left unchanged
+            # so the model still receives clean reference colour information.
+            if augmenter is not None:
+                data['line_images_tgt'] = augmenter.augment_batch(data['line_images_tgt'])
 
             seg_sim_map, dino_seg_sim_map  = model.forward(data)
             loss, ce_loss, mae_loss  = criterion(data, seg_sim_map, dino_seg_sim_map)

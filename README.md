@@ -1,3 +1,12 @@
+# GAT-DACoN: Topology-Aware Segment Correspondence for Anime Paint Bucket Colorization
+
+Built on top of **DACoN** (ICCV 2025) with two novel contributions:
+
+1. **Topology-Aware Correspondence via GAT** — enriches per-segment features with spatial adjacency information using a 2-layer Graph Attention Network before cosine-similarity matching.
+2. **Sketch Robustness Augmentation** — trains the model on synthetically degraded line drawings (gap simulation, thickness variation, elastic jitter, colour variation) to improve generalisation to hand-drawn test data.
+
+---
+
 # DACoN: DINO for Anime Paint Bucket Colorization with Any Number of Reference Images (ICCV 2025)
 <!--
 [Paper Link](https://arxiv.org/pdf/????.????)
@@ -53,6 +62,23 @@ python dacon/train.py \
     --config configs/train.yaml \
     --version 1_1
 ```
+
+### Train with GAT + Sketch Augmentation (full model)
+
+```
+python dacon/train.py \
+    --config configs/train_gat.yaml \
+    --version 1_1
+```
+
+The `configs/train_gat.yaml` config exposes two flags for ablation studies:
+
+| Flag (`network` / `train` section) | Effect |
+|---|---|
+| `use_gat: True` | Enable topology-aware GAT (Contribution 1) |
+| `use_aug: True` | Enable sketch robustness augmentation (Contribution 2) |
+
+Toggle either flag to `False` to isolate each contribution.
 
 The checkpoints are saved under:
 ```

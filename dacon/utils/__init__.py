@@ -2,6 +2,7 @@ from .image_process import *
 from .data_process import *
 from .metrics import *
 from .pooling import *
+from .sketch_augmentation import SketchAugmentation
 
 import yaml
 import logging
