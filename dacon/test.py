@@ -193,6 +193,11 @@ def main(args):
     if version == None:
         version = config['version']
 
+    if args.colorize_type is not None:
+        config['colorize_type'] = args.colorize_type
+    if args.ref_shot is not None:
+        config['ref_shot'] = args.ref_shot
+
     colorize_type = config['colorize_type']
     ref_shot = config['ref_shot']
 
@@ -285,6 +290,12 @@ if __name__ == "__main__":
     parser.add_argument('--version', type=str,
                         default=None,
                         help='version of DACoN architecture.')
+    parser.add_argument('--colorize_type', type=str,
+                        default=None,
+                        help='Override colorize_type from config (keyframe or consecutive_frame).')
+    parser.add_argument('--ref_shot', type=str,
+                        default=None,
+                        help='Override ref_shot from config (1, 5, or max). Only for keyframe.')
     args = parser.parse_args()
 
     main(args)

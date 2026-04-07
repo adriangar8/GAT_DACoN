@@ -177,9 +177,12 @@ def main(args):
     
             logger.info(
                         f"Validation Results (Epoch {epoch + 1}):\n"
-                        f"  Val Average Loss: {val_results['loss']:.4f}\n"
-                        f"  Val Segment Accuracy: {val_results['seg_acc']:.4f} (Threshold: {val_results['seg_acc_thres']:.4f})\n"
-                        f"  Val Pixel Accuracy: {val_results['pix_acc']:.4f}"
+                        f"  Val Average Loss:      {val_results['loss']:.4f}\n"
+                        f"  Acc:                   {val_results['seg_acc']:.4f}\n"
+                        f"  Acc-Thresh:            {val_results['seg_acc_thres']:.4f}\n"
+                        f"  Pix-Acc:               {val_results['pix_acc']:.4f}\n"
+                        f"  Pix-F-Acc:             {val_results['pix_fg_acc']:.4f}\n"
+                        f"  Pix-B-MIoU:            {val_results['pix_bg_miou']:.4f}"
                         )
 
             del val_results

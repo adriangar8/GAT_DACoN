@@ -1,0 +1,43 @@
+
+name: dacon_test_gat_aug
+model_type: DACoN
+
+num_gpu: 1
+manual_seed: 42
+
+version: "1_1"
+colorize_type: keyframe   # overridden by --colorize_type in job script
+ref_shot: 1               # overridden by --ref_shot in job script
+
+datasets:
+  name: PaintBucket_Char_v2
+  clip_interval: 20       # use 'max' for PaintBucket_Real consecutive-frame eval
+
+  val:
+    root: dataset/PaintBucket_Char_v2/test/PaintBucket_Char_v2/
+    num_worker: 4
+
+network:
+  feats_dim: 128
+
+  dino_model_type: dinov2_vitl14
+  dino_input_size: [518, 518]
+
+  unet_input_size: [512, 512]
+  unet_input_dim: 3
+  unet_hidden_dim_list: [64, 128, 256, 512]
+
+  segment_pool_size: [512, 512]
+
+  use_gat: True   # must match the trained model
+
+val:
+  save_images: True
+  save_json: True
+  save_path: outputs/gat_aug/   # NOTE: current running job saves to outputs/ (no subdirectory)
+                                 # Move those results manually before running this eval.
+  batch_size: 1
+
+losses:
+  loss_scale_ce: 0.5
+  loss_scale_mae: 0.2

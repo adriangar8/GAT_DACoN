@@ -142,15 +142,25 @@ class GATLayer(nn.Module):
         nn.init.xavier_uniform_(self.a_src)
         nn.init.xavier_uniform_(self.a_dst)
 
-    def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        adj: torch.Tensor,
+        return_attention: bool = False,
+    ):
         """
         Args:
-            x:   (N, in_dim) node features.
-            adj: (N, N) binary adjacency matrix (self-loops already present).
+            x:                (N, in_dim) node features.
+            adj:              (N, N) binary adjacency matrix (self-loops present).
+            return_attention: If True, also return the pre-dropout attention
+                              weights of shape (N, N, num_heads).
 
         Returns:
-            out: (N, num_heads * out_dim) if concat=True,
-                 (N, out_dim)             if concat=False.
+            out:   (N, num_heads * out_dim) if concat=True,
+                   (N, out_dim)             if concat=False.
+            alpha: (N, N, num_heads) attention weights — only when
+                   return_attention=True.  alpha[i, j, h] is the weight
+                   node i places on node j in head h (sums to 1 over j).
         """
         N = x.size(0)
 
@@ -168,17 +178,23 @@ class GATLayer(nn.Module):
 
         # Softmax over incoming neighbours for each node i  (dim=1 → the j-axis)
         alpha = F.softmax(e, dim=1)   # (N, N, H) — rows of adj correspond to i
+
+        # Capture clean attention weights before dropout (for visualization)
+        alpha_vis = alpha.detach().cpu() if return_attention else None
+
         alpha = self.dropout(alpha)
 
         # Weighted aggregation: h[i, h, d] = Σ_j  α[i, j, h] * Wf[j, h, d]
         h = torch.einsum("ijh,jhd->ihd", alpha, Wf)  # (N, H, D)
 
         if self.concat:
-            # Concatenate heads and apply ELU
-            return self.elu(h.reshape(N, self.num_heads * self.out_dim))
+            out = self.elu(h.reshape(N, self.num_heads * self.out_dim))
         else:
-            # Average over heads (no activation at final layer)
-            return h.mean(dim=1)   # (N, D)
+            out = h.mean(dim=1)   # (N, D)
+
+        if return_attention:
+            return out, alpha_vis
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -219,42 +235,63 @@ class GATModule(nn.Module):
 
         self.norm = nn.LayerNorm(feat_dim)
 
-    def _enrich_single(self, feats: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+    def _enrich_single(
+        self,
+        feats: torch.Tensor,
+        adj: torch.Tensor,
+        return_attention: bool = False,
+    ):
         """Apply 2-layer GAT + residual to one image's segment features.
 
         Args:
-            feats: (N, C) – features for N segments.
-            adj:   (N, N) – adjacency matrix with self-loops.
+            feats:            (N, C) – features for N segments.
+            adj:              (N, N) – adjacency matrix with self-loops.
+            return_attention: If True, also return per-layer attention weights.
 
         Returns:
-            (N, C) topology-enriched features.
+            enriched: (N, C) topology-enriched features.
+            layer_alphas: list of two numpy arrays [alpha_l1, alpha_l2]
+                          shapes (N, N, 4) and (N, N, 1) — only when
+                          return_attention=True.
         """
-        h = self.gat1(feats, adj)    # (N, C)  ELU applied inside
-        h = self.gat2(h, adj)         # (N, C)  no activation
-        return self.norm(feats + h)   # residual + LayerNorm
+        if return_attention:
+            h1, alpha1 = self.gat1(feats, adj, return_attention=True)
+            h2, alpha2 = self.gat2(h1, adj, return_attention=True)
+            enriched = self.norm(feats + h2)
+            return enriched, [alpha1.numpy(), alpha2.numpy()]
+
+        h = self.gat1(feats, adj)
+        h = self.gat2(h, adj)
+        return self.norm(feats + h)
 
     def forward(
         self,
         seg_feats: torch.Tensor,
         seg_images: torch.Tensor,
         seg_nums: torch.Tensor,
-    ) -> torch.Tensor:
+        return_attention: bool = False,
+    ):
         """Enrich segment features with topology information.
 
         Processes each (batch item, frame) independently: the adjacency graph
         for image (b, s) cannot influence the features of image (b', s').
 
         Args:
-            seg_feats:  (B, S, L, C) – fused segment features from DACoN's MLP.
-            seg_images: (B, S, H, W) – integer segment-label images (stored as
-                        float32 after move_data_to_device; labels are 1-indexed).
-            seg_nums:   (B, S)       – actual segment count per image.
+            seg_feats:        (B, S, L, C) – fused segment features from DACoN's MLP.
+            seg_images:       (B, S, H, W) – integer segment-label images (stored as
+                              float32 after move_data_to_device; labels are 1-indexed).
+            seg_nums:         (B, S)       – actual segment count per image.
+            return_attention: If True, also return a dict of per-image attention data.
 
         Returns:
             enriched: (B, S, L, C) – topology-enriched features, same shape.
+            attentions: dict mapping (b, s) → {'adj': np.ndarray (n,n),
+                        'layer_alphas': [alpha_l1 (n,n,4), alpha_l2 (n,n,1)]}
+                        Only returned when return_attention=True.
         """
         B, S, L, C = seg_feats.shape
         output = seg_feats.clone()
+        attentions = {} if return_attention else None
 
         for b in range(B):
             for s in range(S):
@@ -266,6 +303,18 @@ class GATModule(nn.Module):
                 seg_img = seg_images[b, s]             # (H, W)
                 adj     = build_adjacency(seg_img, n)  # (n, n)
 
-                output[b, s, :n] = self._enrich_single(feats, adj)
+                if return_attention:
+                    enriched, layer_alphas = self._enrich_single(
+                        feats, adj, return_attention=True
+                    )
+                    output[b, s, :n] = enriched
+                    attentions[(b, s)] = {
+                        "adj": adj.cpu().numpy(),
+                        "layer_alphas": layer_alphas,
+                    }
+                else:
+                    output[b, s, :n] = self._enrich_single(feats, adj)
 
+        if return_attention:
+            return output, attentions
         return output
