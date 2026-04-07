@@ -196,7 +196,7 @@ def main(args):
     if args.colorize_type is not None:
         config['colorize_type'] = args.colorize_type
     if args.ref_shot is not None:
-        config['ref_shot'] = args.ref_shot
+        config['ref_shot'] = args.ref_shot if args.ref_shot == "max" else int(args.ref_shot)
 
     colorize_type = config['colorize_type']
     ref_shot = config['ref_shot']
